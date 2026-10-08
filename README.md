@@ -115,7 +115,7 @@ npm run publish      # envoi direct au serveur GEO : non fonctionnel avec ce mod
 
 1. Modifier `plugin.geoext.json` et/ou `extension.js`.
 2. `npm run package`.
-3. Dans le Générateur : menu **Modules** > **+ Module**, importer le ZIP.
+3. Dans le Générateur (⚠️ **ancienne interface** de GEO, pas la nouvelle) : menu **Modules** > **+ Module**, importer le ZIP.
 4. Glisser le module dans l'application (via le « Module GEO API JS v2 »), configurer ses réglages, enregistrer.
 5. Ouvrir l'application, tester, regarder la console du navigateur (F12) en cas de souci.
 6. Corriger, recommencer.
