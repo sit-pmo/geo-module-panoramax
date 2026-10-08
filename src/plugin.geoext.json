@@ -1,0 +1,106 @@
+{
+  "name": "geo.panoramax",
+  "displayName": "Vue immersive Panoramax",
+  "version": "1.1.1",
+  "minGeoVersion": "3.2.0",
+  "author": "fallamanche@vienne-condrieu-agglomeration.fr",
+  "allowMultiple": false,
+  "reuseConfiguration": true,
+  "preview": "src/preview.png",
+  "compatibleZoneTags": [
+    "global.pro",
+    "leftpanel",
+    "widget.side.pro",
+    "widget.side"
+  ],
+  "code": {
+    "moduleName": "geo.panoramax",
+    "dependencies": [
+      "bg.acf.base",
+      "bg.common.geo.GeoApi"
+    ]
+  },
+  "configuration": [
+    {
+      "@type": "com.bg.functionality.canvas.configuration.ConfigurationGroup",
+      "name": "Instance Panoramax",
+      "elements": [
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "URL de l'instance Panoramax",
+          "description": "URL racine de l'instance Panoramax/Géovisio à utiliser (API STAC, doit se terminer par /api). Ex. https://api.panoramax.xyz/api pour l'instance publique.",
+          "key": "panoramaxInstanceUrl",
+          "required": true,
+          "type": "STRING",
+          "defaultValue": "https://api.panoramax.xyz/api"
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "URL du site web Panoramax",
+          "description": "URL du site web public de l'instance, utilisée par le bouton « Ouvrir dans Panoramax ». Laisser vide pour la déduire de l'URL de l'API en retirant le suffixe /api (convient quand le site et l'API partagent le même domaine, ex. https://api.panoramax.xyz/api → https://api.panoramax.xyz). Attention : ce doit être le site de la MÊME instance que l'API ; avec un méta-catalogue (api.panoramax.xyz), ne pas mettre le site d'une seule instance (ex. panoramax.ign.fr) : les photos des autres instances n'y existent pas.",
+          "key": "panoramaxSiteUrl",
+          "required": false,
+          "type": "STRING",
+          "defaultValue": ""
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Rayon de recherche (degrés)",
+          "description": "Distance de recherche de la photo la plus proche autour du point cliqué sur la carte, en degrés décimaux (~0.0005 ≈ 50 m).",
+          "key": "searchRadius",
+          "required": false,
+          "type": "NUMBER",
+          "minValue": 0.0001,
+          "maxValue": 0.01,
+          "step": 0.0001,
+          "defaultValue": 0.0005
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Utilisateur Panoramax à privilégier",
+          "description": "Nom d'utilisateur ou UUID d'un contributeur Panoramax (ex. « stanton »). Parmi les photos trouvées près du point recherché, celle de cet utilisateur est privilégiée s'il y en a une ; sinon la photo la plus proche (tous utilisateurs confondus) est utilisée. Laisser vide pour ne pas filtrer.",
+          "key": "preferredUser",
+          "required": false,
+          "type": "STRING",
+          "defaultValue": ""
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Nombre de candidats examinés",
+          "description": "Nombre de photos proches examinées pour trouver celle de l'utilisateur privilégié (plus il est élevé, plus la recherche a de chances de trouver une photo de cet utilisateur, mais plus la requête est coûteuse). Sans effet si aucun utilisateur n'est privilégié.",
+          "key": "preferredUserCandidates",
+          "required": false,
+          "type": "NUMBER",
+          "minValue": 1,
+          "maxValue": 50,
+          "step": 1,
+          "defaultValue": 20
+        }
+      ]
+    },
+    {
+      "@type": "com.bg.functionality.canvas.configuration.ConfigurationGroup",
+      "name": "Options du panneau",
+      "elements": [
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Libellé de l'onglet",
+          "description": "Libellé de l'onglet Panoramax dans la barre latérale droite (affiché au survol de son icône).",
+          "key": "toolName",
+          "required": false,
+          "type": "STRING",
+          "defaultValue": "Panoramax"
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Demander confirmation avant ouverture",
+          "description": "À l'ouverture du panneau, affiche un message de confirmation (avec option « Ne plus demander », mémorisée dans le navigateur) avant de charger le viewer Panoramax.",
+          "key": "confirmBeforeOpen",
+          "required": false,
+          "type": "BOOLEAN",
+          "defaultValue": true
+        }
+      ]
+    }
+  ]
+}

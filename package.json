@@ -1,0 +1,45 @@
+{
+  "name": "geo-panoramax",
+  "version": "1.1.1",
+  "description": "Module GEO d'intégration des vues immersives Panoramax (photos à 360° géolocalisées)",
+  "main": "src/js/extension.js",
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/plugin-transform-class-properties": "^7.29.7",
+    "@babel/plugin-transform-class-static-block": "^7.29.7",
+    "@babel/plugin-transform-logical-assignment-operators": "^7.29.7",
+    "@babel/plugin-transform-nullish-coalescing-operator": "^7.29.7",
+    "@babel/plugin-transform-optional-chaining": "^7.29.7",
+    "@babel/plugin-transform-private-methods": "^7.29.7",
+    "@babel/plugin-transform-private-property-in-object": "^7.29.7",
+    "@babel/preset-env": "^7.29.7",
+    "archiver": "^5.3.1",
+    "babel-loader": "^8.4.1",
+    "css-loader": "^3.2.0",
+    "style-loader": "^1.0.0",
+    "url-loader": "^2.3.0",
+    "webpack": "^4.42.1",
+    "webpack-cli": "^3.3.10"
+  },
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch",
+    "package": "npm run build && node scripts/package.js",
+    "publish": "webpack --config webpack.publish.config.js",
+    "publish:watch": "webpack --watch --config webpack.publish.config.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "geo",
+    "panoramax",
+    "streetview",
+    "immersive",
+    "360"
+  ],
+  "author": "fallamanche@vienne-condrieu-agglomeration.fr",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@panoramax/web-viewer": "^5.2.0",
+    "shepherd.js": "^15.3.0"
+  }
+}

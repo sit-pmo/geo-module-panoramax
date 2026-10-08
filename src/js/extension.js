@@ -1,0 +1,669 @@
+import angular from "angular";
+import pluginConf from '../plugin.geoext.json';
+import Shepherd from 'shepherd.js';
+import 'shepherd.js/dist/css/shepherd.css';
+
+// Enregistre les web components <pnx-viewer>, <pnx-photo-viewer>, etc.
+import '@panoramax/web-viewer';
+
+angular
+    .module(pluginConf.code.moduleName, pluginConf.code.dependencies)
+    .run(['geoApplication', 'acfExtensionService', '$rootScope', '$timeout',
+          function (geoApplication, acfExtensionService, $rootScope, $timeout) {
+
+        // ============================================================
+        // Configuration (remplie depuis le générateur GEO)
+        // ============================================================
+        var _instanceUrl       = 'https://api.panoramax.xyz/api';
+        var _siteUrl           = null; // site web public ; si vide, déduit de _instanceUrl
+        var _searchRadius      = 0.0005;
+        var _preferredUser          = null; // nom d'utilisateur ou UUID, insensible à la casse
+        var _preferredUserCandidates = 20;
+        var _toolName           = 'Panoramax';
+        var _confirmBeforeOpen  = true;
+        var _registered         = false;
+        var _widgetId           = null;
+        var _panelWidthPct      = 50;
+
+        var _NEVER_ASK_KEY = 'geo-panoramax-neverConfirm';
+        var _MARKER_ID     = 'geo-panoramax-marker';
+        var _markerPlaced  = false;
+        var _FULLSCREEN_BODY_CLASS = 'geo-panoramax-fullscreen-active';
+
+        // Scope actif (widget) et référence à l'élément <pnx-viewer> courant
+        var _currentScope  = null;
+        var _viewerEl       = null;
+
+        // ============================================================
+        // Lecture config GEO Generator + enregistrement
+        // ============================================================
+        geoApplication.executeWhenInitialized(function () {
+            var config = geoApplication.getConfigurationByExtensionKey(pluginConf.name);
+
+            if (config && config.length > 0) {
+                var props = config[0].properties;
+
+                _instanceUrl      = (props.panoramaxInstanceUrl || _instanceUrl).replace(/\/+$/, '');
+                _siteUrl          = (props.panoramaxSiteUrl || '').trim().replace(/\/+$/, '') || null;
+                _searchRadius     = parseFloat(props.searchRadius) || _searchRadius;
+                _preferredUser    = (props.preferredUser || '').trim() || null;
+                _preferredUserCandidates = parseInt(props.preferredUserCandidates, 10) || _preferredUserCandidates;
+                _toolName         = props.toolName       || _toolName;
+                _confirmBeforeOpen = props.confirmBeforeOpen !== false && props.confirmBeforeOpen !== 'false';
+            }
+
+            if (!_registered) {
+                _registered = true;
+                _injectStyles();
+                _registerWidget();
+            }
+        });
+
+        // ============================================================
+        // Panneau natif GEO (registerWidgetExtension)
+        // ============================================================
+        function _registerWidget() {
+            acfExtensionService.registerWidgetExtension({
+                type:         'rightPanel',
+                key:          pluginConf.name,
+                extensionKey: pluginConf.name,
+                name:         _toolName,
+                // Icône native GEO : .launcher-icon fournit déjà la police "icons", pas besoin
+                // de notre SVG custom ici (qui, lui, doit forcer sa propre taille et écrasait
+                // le dimensionnement piloté par .launcher-icon dans la sidebar).
+                icon:         'icon_panoramax',
+                active:       false,
+                widthPolicy:  'custom',
+                enable:       function () { return true; },
+                template:     _buildTemplate(),
+                controller:   _buildController(),
+                configure:    function (ext) {
+                    _widgetId = ext && ext.id ? ext.id : pluginConf.name;
+                    _requestPanelWidthSoon();
+                }
+            });
+
+            $rootScope.$on('activeRightTabChanged', function (event, tabId) {
+                if (tabId === pluginConf.name || tabId === _widgetId) {
+                    _requestPanelWidthSoon();
+                }
+            });
+        }
+
+        // Le panneau natif GEO est étroit par défaut : le viewer Panoramax (carte + photo
+        // 360°) a besoin de place pour rester utilisable. On l'élargit à moitié écran.
+        function _requestPanelWidth() {
+            $rootScope.$broadcast('EXTENSION_WIDGET_ACTION', {
+                action:   'setPanelSize',
+                widgetId: _widgetId || pluginConf.name,
+                width:    _panelWidthPct
+            });
+            window.dispatchEvent(new Event('resize'));
+        }
+
+        function _requestPanelWidthSoon() {
+            [0, 100, 300].forEach(function (delay) {
+                setTimeout(_requestPanelWidth, delay);
+            });
+        }
+
+        // La confirmation éventuelle est demandée dans le panneau lui-même (cf. template) :
+        // GEO ouvre le panneau sans passer par le code du module.
+        // "Ne plus demander" est mémorisé dans le navigateur (localStorage peut être indisponible).
+        function _isNeverAsk() {
+            try { return window.localStorage.getItem(_NEVER_ASK_KEY) === '1'; } catch (e) { return false; }
+        }
+        function _setNeverAsk() {
+            try { window.localStorage.setItem(_NEVER_ASK_KEY, '1'); } catch (e) { /* ignoré */ }
+        }
+
+        // ============================================================
+        // Icônes Lucide (https://lucide.dev, licence ISC), SVG copiés tels quels plutôt
+        // que d'embarquer la bibliothèque : trait en currentColor, donc la couleur suit le CSS.
+        // ============================================================
+        function _lucideSvg(inner) {
+            return '<svg class="geo-pnx-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ' +
+                   'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+                   'stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+        }
+
+        var _LUCIDE = {
+            link: _lucideSvg(
+                '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>' +
+                '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>'),
+            maximize: _lucideSvg(
+                '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/>' +
+                '<path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
+            minimize: _lucideSvg(
+                '<path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/>' +
+                '<path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/>'),
+            help: _lucideSvg(
+                '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>' +
+                '<path d="M12 17h.01"/>')
+        };
+
+        // ============================================================
+        // Template Angular du widget
+        // ============================================================
+        function _buildTemplate() {
+            return [
+                '<div class="geo-pnx-widget">',
+                // Confirmation avant de charger le viewer (réglage « Demander confirmation »).
+                '  <div class="geo-pnx-confirm" ng-if="!confirmed">',
+                '    <h3>Panoramax</h3>',
+                '    <p ng-if="!declined">Vous êtes sur le point d\'afficher une vue immersive Panoramax. Souhaitez-vous continuer ?</p>',
+                '    <p ng-if="declined">La vue immersive n\'est pas chargée. Vous pouvez refermer ce panneau.</p>',
+                '    <div class="geo-pnx-confirm-actions">',
+                '      <button class="geo-pnx-btn geo-pnx-btn--ghost" ng-if="!declined" ng-click="decline()">Non</button>',
+                '      <button class="geo-pnx-btn geo-pnx-btn--ghost" ng-click="accept(true)">Ne plus demander</button>',
+                '      <button class="geo-pnx-btn geo-pnx-btn--primary" ng-click="accept(false)">Oui</button>',
+                '    </div>',
+                '  </div>',
+                '  <div class="geo-pnx-viewer-wrap" ng-if="confirmed">',
+                // focus="pic" est déjà la valeur par défaut du composant : le poser en
+                // attribut statique déclenche attributeChangedCallback avant que le
+                // sous-composant carte interne du viewer soit prêt (Uncaught Error:
+                // Map is not enabled) — on laisse le défaut faire son travail.
+                '    <pnx-viewer class="geo-pnx-viewer"></pnx-viewer>',
+                '    <button class="geo-pnx-open-btn" ng-if="currentPicId" ng-click="openExternally()"',
+                '            title="Ouvrir dans Panoramax">',
+                '      ' + _LUCIDE.link,
+                '    </button>',
+                '    <button class="geo-pnx-fullscreen-btn" ng-class="{\'geo-pnx-fullscreen-btn--active\': isFullscreen}"',
+                '            ng-click="toggleFullscreen()"',
+                '            title="{{ isFullscreen ? \'Réduire\' : \'Agrandir en plein écran\' }}">',
+                '      <span ng-if="!isFullscreen">' + _LUCIDE.maximize + '</span>',
+                '      <span ng-if="isFullscreen">' + _LUCIDE.minimize + '</span>',
+                '    </button>',
+                '    <button class="geo-pnx-help-btn" ng-click="startTour()" title="Aide — visite guidée">',
+                '      ' + _LUCIDE.help,
+                '    </button>',
+                '    <div class="geo-pnx-hint" ng-if="!currentPicId && !statusMessage">',
+                '      Cliquez sur la carte pour afficher la photo Panoramax la plus proche.',
+                '    </div>',
+                '  </div>',
+                '  <div class="geo-pnx-status" ng-if="statusMessage">{{ statusMessage }}</div>',
+                '</div>'
+            ].join('\n');
+        }
+
+        // ============================================================
+        // Contrôleur Angular du widget
+        // ============================================================
+        function _buildController() {
+            return ['$scope', '$element', function ($scope, $element) {
+                _currentScope = $scope;
+                _panelWidthPct = 50; // état par défaut à chaque (re)ouverture du panneau
+
+                $scope.currentPicId    = null;
+                $scope.currentSeqId    = null;
+                $scope.statusMessage   = null;
+                $scope.isFullscreen    = false;
+                // Le viewer n'est créé (et Panoramax interrogé) qu'après confirmation éventuelle.
+                $scope.confirmed       = !_confirmBeforeOpen || _isNeverAsk();
+                $scope.declined        = false;
+
+                var _selectHandler   = null;
+                var _readyHandled    = false;
+                var _pointerClickSub = null;
+
+                $scope.toggleFullscreen = function () {
+                    $scope.isFullscreen = !$scope.isFullscreen;
+                    _panelWidthPct = $scope.isFullscreen ? 100 : 50;
+                    _requestPanelWidthSoon();
+                    // En plein écran, la carte n'a (presque) plus de place visible : le
+                    // toolbar topright (dessin, sélection...) se replie et chevauche le
+                    // toolbar topleft (zoom, géoloc). On le masque tant qu'on est plein écran.
+                    document.body.classList.toggle(_FULLSCREEN_BODY_CLASS, $scope.isFullscreen);
+                };
+
+                $scope.openExternally = function () {
+                    if (!$scope.currentPicId) { return; }
+                    // Le lien vise le site web public, pas l'API : URL du site configurée, sinon
+                    // URL de l'API sans son suffixe /api (vrai quand site et API partagent le domaine).
+                    var siteUrl = _siteUrl || _instanceUrl.replace(/\/api$/, '');
+                    // Même forme que les liens de partage Panoramax : focus sur la photo, avec sa
+                    // séquence. Indispensable avec un méta-catalogue (ex. api.panoramax.xyz) : la
+                    // photo peut venir d'une autre instance que celle du site ouvert.
+                    var url = siteUrl + '/?focus=pic&pic=' + encodeURIComponent($scope.currentPicId);
+                    if ($scope.currentSeqId) { url += '&seq=' + encodeURIComponent($scope.currentSeqId); }
+                    window.open(url, '_blank');
+                };
+
+                $scope.startTour = function () { _startTour(); };
+
+                function _onReady() {
+                    if (_readyHandled) { return; }
+                    _readyHandled = true;
+                    var extent = geoApplication.map && geoApplication.map.extent;
+                    if (extent) {
+                        var center = [(extent.minX + extent.maxX) / 2, (extent.minY + extent.maxY) / 2];
+                        _locateFromMapClick(center, extent.crs);
+                    }
+
+                    // Tant que le panneau est ouvert, un clic sur la carte GEO recherche et
+                    // affiche la photo Panoramax la plus proche du point cliqué — c'est le
+                    // vrai lien avec la carte GEO (le viewer suit la carte, pas l'inverse).
+                    if (geoApplication.map && geoApplication.map.on) {
+                        _pointerClickSub = geoApplication.map.on('pointerClick', function (event) {
+                            _locateFromMapClick(event.coordinates, event.crs);
+                        });
+                    }
+                }
+
+                var _lastProcessedPicId = null;
+
+                function _onSelect(event) {
+                    var detail = event.detail || {};
+                    $timeout(function () {
+                        $scope.currentPicId = detail.picId || null;
+                        $scope.currentSeqId = detail.seqId || null;
+                    });
+                    // "select" se déclenche parfois deux fois d'affilée pour une même photo
+                    // (une fois pour la séquence, une fois pour la photo) : ne replacer le
+                    // marqueur (et donc ne recentrer/décaler la carte) qu'une seule fois.
+                    if (detail.picId && detail.seqId && detail.picId !== _lastProcessedPicId) {
+                        _lastProcessedPicId = detail.picId;
+                        _placeMarkerForPicture(detail.seqId, detail.picId);
+                    }
+                }
+
+                $scope.accept = function (neverAsk) {
+                    if (neverAsk) { _setNeverAsk(); }
+                    $scope.confirmed = true;
+                    _initViewer();
+                };
+
+                $scope.decline = function () { $scope.declined = true; };
+
+                function _initViewer() { $timeout(function () {
+                    _viewerEl = $element[0].querySelector('pnx-viewer');
+                    if (!_viewerEl) { return; }
+                    // L'attribut endpoint doit être posé en JS (pas via {{}}) : le custom
+                    // element lit ses attributs dans connectedCallback, avant que le digest
+                    // Angular n'ait eu la chance d'interpoler le template (cf. démo officielle
+                    // qui fait pareil : setAttribute('endpoint', ...) après insertion DOM).
+                    _viewerEl.setAttribute('endpoint', _instanceUrl);
+                    // Désactive la fédération multi-instances (recherche/photos d'autres
+                    // instances Panoramax connues) : on ne veut interroger que _instanceUrl,
+                    // et ça évite des requêtes CORS parasites vers ces autres instances.
+                    _viewerEl.setAttribute('metacatalog', 'false');
+                    // NB : widgets="false" supprimait aussi les flèches précédent/suivant et le
+                    // lecteur de séquence (tout ou rien côté composant, pas de sélection fine
+                    // possible) — on garde donc le jeu de widgets par défaut malgré la barre de
+                    // recherche/géoloc redondante avec la carte GEO. Le panneau élargi à 50%
+                    // (cf. _requestPanelWidth) limite la gêne visuelle.
+                    _viewerEl.addEventListener('ready', _onReady);
+                    _selectHandler = _onSelect;
+                    _viewerEl.addEventListener('select', _selectHandler);
+                }); }
+
+                if ($scope.confirmed) { _initViewer(); }
+
+                $scope.$on('$destroy', function () {
+                    if (_viewerEl && _selectHandler) {
+                        _viewerEl.removeEventListener('select', _selectHandler);
+                    }
+                    if (_pointerClickSub) {
+                        _pointerClickSub.unsubscribe();
+                        _pointerClickSub = null;
+                    }
+                    document.body.classList.remove(_FULLSCREEN_BODY_CLASS);
+                    _viewerEl = null;
+                    _currentScope = null;
+                    _removeMarker();
+                });
+            }];
+        }
+
+        // Point cliqué sur la carte GEO → transformation en EPSG:4326 (si nécessaire)
+        // puis recherche de la photo la plus proche.
+        function _locateFromMapClick(coordinates, crs) {
+            if (!coordinates) { return; }
+            if (!crs || crs === 'EPSG:4326') {
+                _locateNearestPicture(coordinates);
+                return;
+            }
+            geoApplication.transform(coordinates, crs, 'EPSG:4326').subscribe(
+                function (lonLat) { _locateNearestPicture(lonLat); },
+                function (err) { console.error('[geo-panoramax] transform a échoué :', err); }
+            );
+        }
+
+        // Parmi les candidats (déjà triés par proximité par l'API), retient le premier de
+        // l'utilisateur privilégié (par nom ou UUID, insensible à la casse) s'il y en a un,
+        // sinon retombe sur le tout premier (le plus proche, tous utilisateurs confondus).
+        function _pickPreferredFeature(features) {
+            if (!features.length) { return null; }
+            if (!_preferredUser) { return features[0]; }
+
+            var wanted = _preferredUser.toLowerCase();
+            for (var i = 0; i < features.length; i++) {
+                var providers = features[i].providers || [];
+                for (var j = 0; j < providers.length; j++) {
+                    var p = providers[j];
+                    if ((p.name && p.name.toLowerCase() === wanted) ||
+                        (p.id && p.id.toLowerCase() === wanted)) {
+                        return features[i];
+                    }
+                }
+                var producer = features[i].properties && features[i].properties['geovisio:producer'];
+                if (producer && producer.toLowerCase() === wanted) {
+                    return features[i];
+                }
+            }
+            return features[0];
+        }
+
+        // ============================================================
+        // Recherche de la photo la plus proche + sélection dans le viewer
+        // ============================================================
+        function _locateNearestPicture(lonLat) {
+            if (!_viewerEl || !lonLat) { return; }
+
+            var api = _viewerEl.getAPI && _viewerEl.getAPI();
+            if (!api || typeof api.getPicturesAroundCoordinates !== 'function') { return; }
+
+            // Sans utilisateur privilégié, un seul candidat suffit (le plus proche).
+            // Avec un utilisateur privilégié, on examine plusieurs candidats proches pour
+            // essayer d'en trouver un de cet utilisateur (l'API ne permet pas de filtrer
+            // par utilisateur directement dans getPicturesAroundCoordinates).
+            var limit = _preferredUser ? _preferredUserCandidates : 1;
+
+            api.getPicturesAroundCoordinates(lonLat[1], lonLat[0], _searchRadius, limit)
+                .then(function (fc) {
+                    var features = (fc && fc.features) || [];
+                    var feature = _pickPreferredFeature(features);
+                    if (!feature) {
+                        _setStatus('Aucune photo Panoramax trouvée à cet endroit.');
+                        return;
+                    }
+                    _setStatus(null);
+                    var seqId = feature.properties && (feature.properties.sequences || [])[0];
+                    var picId = feature.id || (feature.properties && feature.properties.id);
+                    // Le marqueur + recentrage sont posés depuis l'événement "select" déclenché
+                    // par ce .select() (cf. _onSelect/_placeMarkerForPicture) — pas ici, pour
+                    // éviter de poser/recentrer deux fois de suite (jitter visuel).
+                    if (picId) {
+                        _viewerEl.select(seqId, picId, true);
+                    } else if (feature.geometry && feature.geometry.coordinates) {
+                        _placeMarkerAtCoordinates(feature.geometry.coordinates);
+                    }
+                })
+                .catch(function (err) {
+                    console.error('[geo-panoramax] getPicturesAroundCoordinates a échoué :', err);
+                    _setStatus('Erreur lors de la recherche de photos Panoramax (voir console).');
+                });
+        }
+
+        // Récupère les coordonnées de la photo courante via l'API STAC (item du catalogue)
+        // pour repositionner le marqueur quand l'utilisateur navigue dans le viewer.
+        function _placeMarkerForPicture(seqId, picId) {
+            if (!_viewerEl || !_viewerEl.getAPI) { return; }
+            var api = _viewerEl.getAPI();
+            if (!api) { return; }
+
+            fetch(_instanceUrl + '/collections/' + seqId + '/items/' + picId)
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (item) {
+                    if (item && item.geometry && item.geometry.coordinates) {
+                        _placeMarkerAtCoordinates(item.geometry.coordinates);
+                    }
+                })
+                .catch(function () { /* la position du marqueur n'est qu'indicative */ });
+        }
+
+        function _setStatus(message) {
+            if (_currentScope) {
+                $timeout(function () { _currentScope.statusMessage = message; });
+            }
+        }
+
+        // ============================================================
+        // Marqueur sur la carte GEO principale (position de la photo affichée)
+        // + recentrage de la carte GEO dessus : lien dynamique dans les deux sens —
+        // que la photo change suite à un clic sur la carte GEO, à la navigation dans
+        // la séquence (précédent/suivant) ou à un clic sur la carte interne Panoramax.
+        // ============================================================
+        function _placeMarkerAtCoordinates(lonLat) {
+            if (!geoApplication.map) { return; }
+
+            var marker = {
+                id:          _MARKER_ID,
+                position:    { coordinates: lonLat, crs: 'EPSG:4326' },
+                imageUrl:    _MARKER_SVG,
+                size:        { w: 26, h: 26 },
+                positioning: 'center-center',
+                tooltip:     { title: 'Photo Panoramax' }
+            };
+
+            var _doAdd = function () {
+                geoApplication.map.addMarkers([marker]).subscribe(function () {
+                    _markerPlaced = true;
+                    _recenterOnMarker(lonLat);
+                });
+            };
+
+            if (_markerPlaced) {
+                geoApplication.map.removeMarkers([_MARKER_ID]).subscribe(_doAdd, _doAdd);
+            } else {
+                _doAdd();
+            }
+        }
+
+        // Recentre la carte GEO sur le marqueur en une seule étape, directement décalée
+        // pour que le marqueur tombe au centre de la zone visible (hors panneau, à droite) —
+        // pas de centerOnMarker() "plein centre" suivi d'un rattrapage (ça provoquait un
+        // flash visible). Conserve le niveau de zoom courant plutôt que de fitter sur un
+        // buffer fixe, précisément pour permettre ce calcul en un seul setExtent().
+        function _recenterOnMarker(lonLat) {
+            if (!geoApplication.map) { return; }
+            var extent = geoApplication.map.extent;
+            if (!extent) { return; }
+
+            if (!extent.crs || extent.crs === 'EPSG:4326') {
+                _applyRecenteredExtent(extent, lonLat);
+                return;
+            }
+            geoApplication.transform(lonLat, 'EPSG:4326', extent.crs).subscribe(
+                function (markerXY) { _applyRecenteredExtent(extent, markerXY); },
+                function (err) { console.error('[geo-panoramax] transform (recentrage) a échoué :', err); }
+            );
+        }
+
+        function _applyRecenteredExtent(currentExtent, markerXY) {
+            var width  = currentExtent.maxX - currentExtent.minX;
+            var height = currentExtent.maxY - currentExtent.minY;
+            if (width <= 0 || height <= 0) { return; }
+
+            var mapEl      = geoApplication.element;
+            var mapRect    = mapEl ? mapEl.getBoundingClientRect() : null;
+            var mapWidthPx = mapRect ? mapRect.width : window.innerWidth;
+
+            // Zone visible = tout sauf le panneau (à droite) ; on cible le centre de cette
+            // zone, soit (100% - panelWidthPct) / 2 depuis la gauche.
+            var visibleFraction = (100 - _panelWidthPct) / 200;
+            var resX    = width / mapWidthPx;
+            var markerX = markerXY[0];
+            var markerY = markerXY[1];
+
+            var newMinX = markerX - visibleFraction * mapWidthPx * resX;
+            var newExtent = {
+                minX: newMinX,
+                maxX: newMinX + width,
+                minY: markerY - height / 2,
+                maxY: markerY + height / 2,
+                crs:  currentExtent.crs
+            };
+
+            geoApplication.map.setExtent(newExtent, newExtent.crs, { disablePadding: true });
+        }
+
+        function _removeMarker() {
+            if (_markerPlaced && geoApplication.map) {
+                geoApplication.map.removeMarkers([_MARKER_ID]).subscribe(function () {
+                    _markerPlaced = false;
+                }, function () { _markerPlaced = false; });
+            }
+        }
+
+        var _MARKER_SVG = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="0 0 26 26">' +
+            '<circle cx="13" cy="13" r="11" fill="#1a73e8" stroke="#fff" stroke-width="3"/>' +
+            '<circle cx="13" cy="13" r="4" fill="#fff"/></svg>'
+        );
+
+        // ============================================================
+        // Tour guidé (Shepherd.js)
+        // ============================================================
+        var _tour = null;
+
+        function _tourOptions() {
+            return {
+                useModalOverlay: true,
+                defaultStepOptions: {
+                    cancelIcon: { enabled: true },
+                    scrollTo: { behavior: 'smooth', block: 'center' },
+                    classes: 'shepherd-theme-oldschool'
+                }
+            };
+        }
+
+        function _btn(label, action, secondary) {
+            return { text: label, action: action, classes: secondary ? 'shepherd-button-secondary' : '' };
+        }
+
+        function _startTour() {
+            if (_tour && _tour.isActive()) { _tour.cancel(); return; }
+
+            _tour = new Shepherd.Tour(_tourOptions());
+
+            _tour.addStep({
+                id:       'fullscreen',
+                text:     '<strong>Plein écran</strong><br>Agrandit le panneau pour mieux voir les photos immersives.',
+                attachTo: { element: '.geo-pnx-fullscreen-btn', on: 'left' },
+                buttons:  [_btn('Fermer', _tour.cancel.bind(_tour), true), _btn('Suivant ›', _tour.next.bind(_tour))]
+            });
+
+            _tour.addStep({
+                id:       'map-click',
+                text:     '<strong>Cliquez sur la carte</strong><br>Cliquez n\'importe où sur la carte GEO, à côté de ce panneau, pour afficher la photo Panoramax la plus proche de ce point.',
+                attachTo: { element: '.geo-pnx-viewer-wrap', on: 'left' },
+                buttons:  [_btn('‹ Précédent', _tour.back.bind(_tour), true), _btn('Suivant ›', _tour.next.bind(_tour))]
+            });
+
+            var hasOpenBtn = !!document.querySelector('.geo-pnx-open-btn');
+            _tour.addStep({
+                id:       'open-externally',
+                text:     '<strong>Ouvrir dans Panoramax</strong><br>Ouvre la photo actuellement affichée dans une nouvelle fenêtre, sur le site Panoramax.' +
+                          (hasOpenBtn ? '' : ' (Ce bouton apparaît une fois qu\'une photo est affichée.)'),
+                attachTo: hasOpenBtn ? { element: '.geo-pnx-open-btn', on: 'left' } : undefined,
+                buttons:  [_btn('‹ Précédent', _tour.back.bind(_tour), true), _btn('Terminer', _tour.complete.bind(_tour))]
+            });
+
+            _tour.start();
+        }
+
+        // ============================================================
+        // Styles CSS (injectés une seule fois)
+        // ============================================================
+        function _injectStyles() {
+            if (document.getElementById('geo-panoramax-styles')) { return; }
+
+            var style = document.createElement('style');
+            style.id  = 'geo-panoramax-styles';
+            style.textContent = [
+                '.geo-pnx-widget{display:flex;flex-direction:column;height:100%;background:#fff;}',
+                '.geo-pnx-viewer-wrap{position:relative;flex:1;min-height:0;}',
+                '.geo-pnx-viewer{position:absolute;inset:0;width:100%;height:100%;}',
+
+                // Bouton rond "ouvrir dans Panoramax", sous le bouton d'aide. Pas en bas à
+                // gauche : le viewer y place son propre bouton photo/carte, qui le recouvrait.
+                '.geo-pnx-open-btn{position:absolute;right:12px;top:160px;z-index:5;',
+                '  border-radius:50%;width:42px;height:42px;border:1px solid rgb(137,137,137);',
+                '  background:rgb(255,255,255);cursor:pointer;display:flex;',
+                '  align-items:center;justify-content:center;font-size:18px;}',
+                '.geo-pnx-open-btn:hover{background:rgba(255,255,255,.95);}',
+                '.geo-pnx-icon{width:20px;height:20px;display:block;}',
+                '.geo-pnx-open-btn,.geo-pnx-fullscreen-btn,.geo-pnx-help-btn{color:#444;padding:0;}',
+                '.geo-pnx-open-btn span,.geo-pnx-fullscreen-btn span,.geo-pnx-help-btn span{',
+                '  display:flex;}',
+
+                // Bouton plein écran, en haut à droite du viewer
+                '.geo-pnx-fullscreen-btn{position:absolute;right:12px;top:60px;z-index:5;',
+                '  border-radius:50%;width:42px;height:42px;border:1px solid rgb(137,137,137);',
+                '  background:rgb(255,255,255);cursor:pointer;display:flex;',
+                '  align-items:center;justify-content:center;font-size:16px;}',
+                '.geo-pnx-fullscreen-btn:hover{background:rgba(255,255,255,.95);}',
+                '.geo-pnx-fullscreen-btn--active{background:#1a73e8;color:#fff;',
+                '  border-color:#1a73e8;}',
+                '.geo-pnx-fullscreen-btn--active:hover{background:#1558b0;}',
+
+                // Bouton d'aide, sous le bouton plein écran
+                '.geo-pnx-help-btn{position:absolute;right:12px;top:110px;z-index:5;',
+                '  border-radius:50%;width:42px;height:42px;border:1px solid rgb(137,137,137);',
+                '  background:rgb(255,255,255);cursor:pointer;display:flex;',
+                '  align-items:center;justify-content:center;font-size:16px;font-weight:700;',
+                '  color:#444;}',
+                '.geo-pnx-help-btn:hover{background:rgba(255,255,255,.95);}',
+
+                // En plein écran, la carte GEO n'a (presque) plus de place visible : le
+                // toolbar de dessin/sélection (topright) se replie et chevauche le toolbar
+                // zoom/géoloc/permalien (topleft). On le masque tant que c'est le cas.
+                'body.' + _FULLSCREEN_BODY_CLASS + ' .acf-map-controls-topright{display:none!important;}',
+
+                '.geo-pnx-status{padding:8px 12px;font-size:12px;color:#666;background:#f7f7f7;',
+                '  border-top:1px solid #ddd;flex-shrink:0;}',
+                // En bas (pas en haut : Panoramax y affiche ses propres contrôles/messages
+                // de statut de connexion tant que le viewer démarre).
+                '.geo-pnx-hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);',
+                '  z-index:5;max-width:80%;padding:8px 16px;background:rgba(0,0,0,.65);color:#fff;',
+                '  font-size:12px;border-radius:14px;text-align:center;pointer-events:none;}',
+
+                // Confirmation avant chargement du viewer (affichée dans le panneau)
+                '.geo-pnx-confirm{flex:1;display:flex;flex-direction:column;align-items:center;',
+                '  justify-content:center;padding:24px;text-align:center;font-family:sans-serif;}',
+                '.geo-pnx-confirm h3{margin:0 0 10px;font-size:16px;}',
+                '.geo-pnx-confirm p{margin:0 0 18px;max-width:380px;font-size:13px;line-height:1.5;color:#333;}',
+                '.geo-pnx-confirm-actions{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;}',
+                '.geo-pnx-btn{padding:7px 14px;border-radius:4px;border:none;cursor:pointer;',
+                '  font-size:12px;font-weight:600;}',
+                '.geo-pnx-btn--ghost{background:#eee;color:#333;}',
+                '.geo-pnx-btn--ghost:hover{background:#e0e0e0;}',
+                '.geo-pnx-btn--primary{background:#1a73e8;color:#fff;}',
+                '.geo-pnx-btn--primary:hover{background:#1558b0;}',
+
+                // Shepherd : z-index au-dessus du reste de l'UI GEO
+                '.shepherd-element{z-index:10000!important;}',
+                '.shepherd-modal-overlay-container{z-index:9999!important;}',
+
+                // Thème oldschool — bordure noire, coins carrés, boutons uppercase
+                // (repris de geo-garbage-collector pour une identité visuelle cohérente)
+                '.shepherd-theme-oldschool.shepherd-element{border:3px solid #1a1a1a;border-radius:0;',
+                '  box-shadow:4px 4px 0 rgba(0,0,0,.18);background:#fff;max-width:380px;}',
+                '.shepherd-theme-oldschool .shepherd-content{border-radius:0;}',
+                '.shepherd-theme-oldschool .shepherd-header{border-radius:0;padding:.75rem 1rem 0;}',
+                '.shepherd-theme-oldschool .shepherd-text{font-size:1.8rem;line-height:1.55;',
+                '  color:#1a1a1a;padding:1.25rem 1.5rem;}',
+                '.shepherd-theme-oldschool .shepherd-footer{border-top:2px solid #1a1a1a;',
+                '  border-radius:0;padding:0;display:flex;justify-content:stretch;}',
+                '.shepherd-theme-oldschool .shepherd-button{flex:1;border:none;',
+                '  border-radius:0;font-size:1.5rem;font-weight:700;',
+                '  text-transform:uppercase;letter-spacing:.06em;padding:1rem;margin:0;',
+                '  transition:filter .15s;}',
+                '.shepherd-theme-oldschool .shepherd-button:not(:disabled):hover{filter:brightness(.92);}',
+                '.shepherd-theme-oldschool .shepherd-button.shepherd-button-secondary{',
+                '  background:#cfd8dc;color:#1a1a1a;}',
+                '.shepherd-theme-oldschool .shepherd-button:not(.shepherd-button-secondary){',
+                '  background:#00c853;color:#fff;}',
+                '.shepherd-theme-oldschool .shepherd-button+.shepherd-button{border-left:2px solid #1a1a1a;}',
+                '.shepherd-theme-oldschool .shepherd-cancel-icon{color:#333;font-size:1.6em;}',
+                '.shepherd-theme-oldschool[data-popper-placement^=bottom]>.shepherd-arrow:before{box-shadow:-2px -2px 0 #1a1a1a;}',
+                '.shepherd-theme-oldschool[data-popper-placement^=top]>.shepherd-arrow:before{box-shadow:2px 2px 0 #1a1a1a;}',
+                '.shepherd-theme-oldschool[data-popper-placement^=left]>.shepherd-arrow:before{box-shadow:2px -2px 0 #1a1a1a;}',
+                '.shepherd-theme-oldschool[data-popper-placement^=right]>.shepherd-arrow:before{box-shadow:-2px 2px 0 #1a1a1a;}'
+            ].join('');
+
+            document.head.appendChild(style);
+        }
+    }]);
