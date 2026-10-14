@@ -58,6 +58,12 @@ version à l'autre :
 8. **Bouton rond « ouvrir dans Panoramax »** superposé au viewer, visible quand une photo est
    affichée : ouvre `{siteUrl}/?pic={picId}` dans un nouvel onglet (voir « Points à vérifier »).
 9. **Bouton d'aide** : visite guidée (Shepherd.js, AGPL-3.0).
+10. **Groupe de couches GEO** (config `layerGroupName`, défaut `Panoramax`, vide = désactivé) :
+    coché à l'ouverture du panneau, décoché à sa fermeture (`$destroy`). Faute d'API GEO de
+    couches connue, le module clique la case « œil » de la légende
+    (`.acf-thematic-layer-visibility-checkbox-label`, reliée par `aria-labelledby` au libellé
+    `#id-thematic-group-item-label-…` dont le texte vaut le nom du groupe), seulement si
+    `aria-checked` diffère de l'état voulu. Sans effet si la légende n'est pas rendue.
 
 ## Points à vérifier avant mise en production
 
