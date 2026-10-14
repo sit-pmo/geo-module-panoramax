@@ -22,6 +22,7 @@ angular
         var _toolName           = 'Panoramax';
         var _confirmBeforeOpen  = true;
         var _layerGroupName     = 'Panoramax'; // groupe de couches GEO affiché tant que le panneau est ouvert
+        var _showTourOnStart    = true;        // accroche + visite guidée automatiques au premier lancement
         var _registered         = false;
         var _widgetId           = null;
         var _panelWidthPct      = 50;
@@ -60,12 +61,14 @@ angular
                 _confirmBeforeOpen = props.confirmBeforeOpen !== false && props.confirmBeforeOpen !== 'false';
                 // Vide = désactivé ; absent (config antérieure au réglage) = valeur par défaut.
                 _layerGroupName   = (props.layerGroupName == null ? _layerGroupName : String(props.layerGroupName)).trim() || null;
+                _showTourOnStart  = props.showTourOnStart !== false && props.showTourOnStart !== 'false';
             }
 
             if (!_registered) {
                 _registered = true;
                 _injectStyles();
                 _registerWidget();
+                _startTeaser(0);
             }
         });
 
@@ -203,6 +206,9 @@ angular
         function _buildController() {
             return ['$scope', '$element', function ($scope, $element) {
                 _currentScope = $scope;
+                // Le panneau est ouvert : l'accroche sur l'onglet n'a plus lieu d'être, quel
+                // que soit l'élément GEO cliqué pour l'ouvrir (rien n'est mémorisé).
+                _cancelTeaser();
                 _setLayerGroupVisible(true);
                 _panelWidthPct = 50; // état par défaut à chaque (re)ouverture du panneau
 
@@ -257,8 +263,15 @@ angular
                     // vrai lien avec la carte GEO (le viewer suit la carte, pas l'inverse).
                     if (geoApplication.map && geoApplication.map.on) {
                         _pointerClickSub = geoApplication.map.on('pointerClick', function (event) {
+                            _tourNotify('click');
                             _locateFromMapClick(event.coordinates, event.crs);
                         });
+                    }
+
+                    // Visite guidée automatique tant qu'elle n'a été ni terminée, ni passée, ni
+                    // désactivée. Léger délai : laisser le viewer poser ses boutons.
+                    if (_tourPending()) {
+                        $timeout(function () { if (_currentScope === $scope) { _startTour(); } }, 500);
                     }
 
                     // Cône de vision : "view-rotated" est émis par le sous-composant photo
@@ -287,6 +300,7 @@ angular
                     }
                     _heading = x;
                     if (_lastLonLat) { _drawMarker(_lastLonLat, false); }
+                    _tourNotify('rotate', x);
                 }
 
                 // Cap de référence à chaque nouvelle photo : "view-rotated" n'est pas garanti
@@ -323,6 +337,7 @@ angular
                         if (_lastProcessedPicId === null) { _viewerEl.setAttribute('focus', 'pic'); }
                         _lastProcessedPicId = detail.picId;
                         _placeMarkerForPicture(detail.seqId, detail.picId);
+                        _tourNotify('select', detail.picId);
                     }
                 }
 
@@ -359,6 +374,11 @@ angular
                 if ($scope.confirmed) { _initViewer(); }
 
                 $scope.$on('$destroy', function () {
+                    // Panneau fermé en pleine visite : on l'arrête sans rien mémoriser, elle
+                    // reprendra au début à la prochaine ouverture.
+                    if (_tour && _tour.isActive()) { _tour.cancel(); }
+                    _tourWaiting = null;
+                    _hideMapAnchor();
                     if (_viewerEl && _selectHandler) {
                         _viewerEl.removeEventListener('select', _selectHandler);
                     }
@@ -651,15 +671,40 @@ angular
         // ============================================================
         // Tour guidé (Shepherd.js)
         // ============================================================
-        var _tour = null;
+        var _tour   = null; // visite guidée du panneau (auto au 1er lancement, ou bouton « ? »)
+        var _teaser = null; // accroche d'une étape sur l'onglet, au chargement de l'appli
 
+        // État mémorisé dans le navigateur : '' (jamais vue), 'v1:done' (terminée ou passée),
+        // 'v1:never' (ne plus afficher). Seuls les boutons l'écrivent : fermer le panneau
+        // ou la bulle n'enregistre rien. Changer _TOUR_VERSION réaffiche la visite une fois
+        // pour tout le monde (nouveau contenu).
+        var _TOUR_KEY     = 'geo-panoramax-tour';
+        var _TOUR_VERSION = 'v1';
+
+        function _tourPending() {
+            if (!_showTourOnStart) { return false; }
+            var v = '';
+            try { v = window.localStorage.getItem(_TOUR_KEY) || ''; } catch (e) { /* indisponible : visite réaffichée */ }
+            return v.indexOf(_TOUR_VERSION + ':') !== 0;
+        }
+
+        function _setTourState(state) {
+            try { window.localStorage.setItem(_TOUR_KEY, _TOUR_VERSION + ':' + state); } catch (e) { /* ignoré */ }
+        }
+
+        // Pas d'overlay modal : il bloquerait le clic sur la carte GEO, qui est justement le
+        // geste à apprendre. Pas de flèches clavier : la bulle prend le focus, et ← → feraient
+        // sauter les étapes qui attendent un geste. Pas de croix : les boutons disent ce qui
+        // est mémorisé (Échap ferme sans rien mémoriser).
         function _tourOptions() {
             return {
-                useModalOverlay: true,
+                useModalOverlay:    false,
+                keyboardNavigation: false,
                 defaultStepOptions: {
-                    cancelIcon: { enabled: true },
-                    scrollTo: { behavior: 'smooth', block: 'center' },
-                    classes: 'shepherd-theme-oldschool'
+                    cancelIcon:     { enabled: false },
+                    scrollTo:       false,
+                    highlightClass: 'geo-pnx-tour-pulse',
+                    classes:        'shepherd-theme-geo'
                 }
             };
         }
@@ -668,35 +713,232 @@ angular
             return { text: label, action: action, classes: secondary ? 'shepherd-button-secondary' : '' };
         }
 
+        // ---------- Accroche sur l'onglet (chargement de l'appli) ----------
+
+        // L'onglet est rendu par GEO après executeWhenInitialized : quelques essais espacés,
+        // puis on renonce (jamais de bulle flottante au milieu de l'écran).
+        // ponytail: sélecteur déduit de l'icône posée par le module (icon: 'icon_panoramax'),
+        // à confirmer dans le DOM de GEO (tâche T1 du design) ; repli = pas d'accroche.
+        function _startTeaser(attempt) {
+            if (!_tourPending() || _currentScope) { return; } // déjà vue, ou panneau déjà ouvert
+            // GEO peut rendre plusieurs .icon_panoramax (dont des masqués) : on garde le plus à
+            // droite parmi les visibles, c'est-à-dire l'onglet de la barre latérale droite. La
+            // bulle est ancrée sur l'icône elle-même : son ancêtre cliquable peut être un
+            // élément large, qui décalait la bulle vers le milieu de l'écran (constaté sur GEO PETR).
+            var icon = null;
+            Array.prototype.forEach.call(document.querySelectorAll('.icon_panoramax'), function (el) {
+                var r = el.getBoundingClientRect();
+                if (r.width > 0 && r.height > 0 && (!icon || r.left > icon.getBoundingClientRect().left)) { icon = el; }
+            });
+            if (!icon) {
+                if (attempt < 10) { setTimeout(function () { _startTeaser(attempt + 1); }, 500); }
+                return;
+            }
+            var tab = icon.closest('button, a, [role="button"], [ng-click], li') || icon;
+
+            _teaser = new Shepherd.Tour(_tourOptions());
+            var teaser = _teaser;
+            teaser.addStep({
+                id:       'teaser',
+                text:     '<strong>Nouveau : vue immersive Panoramax</strong><br>Ouvrez cet onglet pour voir ' +
+                          'les photos à 360° de n\'importe quel point de la carte.',
+                attachTo: { element: icon, on: 'left' },
+                buttons:  [
+                    _btn('Ne plus afficher', function () { _setTourState('never'); teaser.cancel(); }, true),
+                    _btn('Plus tard', function () { teaser.cancel(); })
+                ]
+            });
+            // Équivalent d'advanceOn : ouvrir l'onglet ferme la bulle (le contrôleur du
+            // panneau la ferme aussi, au cas où GEO reçoit le clic sur un autre élément).
+            tab.addEventListener('click', _cancelTeaser, { once: true });
+            teaser.start();
+        }
+
+        function _cancelTeaser() {
+            if (_teaser && _teaser.isActive()) { _teaser.cancel(); }
+            _teaser = null;
+        }
+
+        // ---------- Étapes interactives : avancent quand l'agent fait le geste ----------
+
+        var _tourWaiting     = null;  // geste attendu par l'étape affichée : 'map-pic' | 'rotate' | 'next-pic'
+        var _tourClicked     = false; // un clic de l'agent sur la carte précède le select attendu
+        var _tourPicId       = null;  // photo affichée au début de l'étape
+        var _tourRotation    = 0;     // degrés cumulés pendant l'étape « regardez autour »
+        var _tourLastHeading = null;
+
+        // Appelé par les gestionnaires existants (pointerClick, _onSelect, _onViewRotated).
+        // La photo du centre, sélectionnée automatiquement à l'ouverture, ne fait pas avancer
+        // l'étape « cliquez sur la carte » : seul un select qui suit un clic de l'agent compte.
+        function _tourNotify(kind, value) {
+            if (!_tourWaiting || !_tour || !_tour.isActive()) { return; }
+            if (kind === 'click') {
+                if (_tourWaiting === 'map-pic') { _tourClicked = true; }
+            } else if (kind === 'select') {
+                if (value === _tourPicId) { return; }
+                if (_tourWaiting === 'next-pic' || (_tourWaiting === 'map-pic' && _tourClicked)) {
+                    _tourSuccess();
+                }
+            } else if (kind === 'rotate' && _tourWaiting === 'rotate') {
+                if (_tourLastHeading !== null) {
+                    var delta = Math.abs(value - _tourLastHeading) % 360;
+                    _tourRotation += Math.min(delta, 360 - delta); // passage 359° → 0° compté 1°
+                }
+                _tourLastHeading = value;
+                if (_tourRotation >= 30) { _tourSuccess(); }
+            }
+        }
+
+        // Geste réussi : « ✓ Bien joué » affiché un court instant, puis étape suivante.
+        function _tourSuccess() {
+            var tour = _tour;
+            var step = tour.getCurrentStep();
+            _tourWaiting = null;
+            var el = step && step.getElement();
+            if (el) { el.classList.add('geo-pnx-tour-success'); }
+            setTimeout(function () {
+                if (tour.isActive() && tour.getCurrentStep() === step) { tour.next(); }
+            }, 700);
+        }
+
+        // Point d'ancrage pour « Cliquez sur la carte » : la carte GEO n'offre pas d'élément
+        // fiable à viser, on pose un point rouge pulsant au milieu de sa partie visible (à
+        // gauche du panneau) ; la bulle se place à sa droite et sa flèche pointe la carte.
+        // Panneau en plein écran (carte invisible) : ancrage sur le viewer, comme avant.
+        var _MAP_ANCHOR_CLASS = 'geo-pnx-tour-map-anchor';
+
+        function _showMapAnchor() {
+            _hideMapAnchor();
+            var panel = document.querySelector('.geo-pnx-widget');
+            var r = panel && panel.getBoundingClientRect();
+            if (!r || r.left < 200) { return; }
+            var dot = document.createElement('div');
+            dot.className = _MAP_ANCHOR_CLASS;
+            dot.style.left = Math.round(r.left * 0.4) + 'px';
+            dot.style.top  = Math.round(r.top + r.height / 2) + 'px';
+            document.body.appendChild(dot);
+        }
+
+        function _hideMapAnchor() {
+            var dot = document.querySelector('.' + _MAP_ANCHOR_CLASS);
+            if (dot) { dot.parentNode.removeChild(dot); }
+        }
+
+        // Étape qui attend un geste ; « Passer cette étape » si le geste n'aboutit pas.
+        // element : sélecteur ou fonction (résolu à l'affichage) ; on : côté de la bulle.
+        function _gestureStep(tour, id, gesture, text, element, on, beforeShow) {
+            return {
+                id:       id,
+                text:     text,
+                attachTo: { element: element, on: on || 'left' },
+                beforeShowPromise: beforeShow,
+                buttons:  [
+                    _btn('Passer la visite', function () { _setTourState('done'); tour.cancel(); }, true),
+                    _btn('Passer cette étape', function () { tour.next(); }, true)
+                ],
+                when: {
+                    show: function () {
+                        _tourWaiting     = gesture;
+                        _tourClicked     = false;
+                        _tourPicId       = _currentScope ? _currentScope.currentPicId : null;
+                        _tourRotation    = 0;
+                        _tourLastHeading = _heading;
+                    },
+                    hide: function () { _tourWaiting = null; _hideMapAnchor(); }
+                }
+            };
+        }
+
+        // ---------- Visite du panneau ----------
+
         function _startTour() {
-            if (_tour && _tour.isActive()) { _tour.cancel(); return; }
+            if (_tour && _tour.isActive()) {
+                var step = _tour.getCurrentStep();
+                // Dernière étape (elle désigne le « ? ») : cliquer dessus termine la visite.
+                if (step && step.id === 'help') { _setTourState('done'); _tour.complete(); }
+                else { _tour.cancel(); } // « ? » rappuyé en cours de visite = fermer
+                return;
+            }
+            _cancelTeaser();
 
             _tour = new Shepherd.Tour(_tourOptions());
+            var tour = _tour;
+            var skipTour = _btn('Passer la visite', function () { _setTourState('done'); tour.cancel(); }, true);
+            var next     = _btn('Suivant ›', function () { tour.next(); });
 
-            _tour.addStep({
+            tour.addStep({
+                id:      'intro',
+                text:    '<strong>Voici la vue immersive Panoramax</strong><br>Une minute pour la prendre en main ? ' +
+                         'On va le faire ensemble.',
+                buttons: [
+                    _btn('Ne plus afficher', function () { _setTourState('never'); tour.cancel(); }, true),
+                    skipTour,
+                    _btn('C\'est parti', function () { tour.next(); })
+                ]
+            });
+
+            tour.addStep(_gestureStep(tour, 'map-click', 'map-pic',
+                '<strong>Cliquez sur la carte</strong><br>Cliquez sur une rue de la carte GEO : la photo ' +
+                'Panoramax la plus proche s\'affiche dans le panneau. S\'il n\'y en a pas, essayez une rue voisine.',
+                function () {
+                    return document.querySelector('.' + _MAP_ANCHOR_CLASS) ||
+                           document.querySelector('.geo-pnx-viewer-wrap');
+                },
+                'right',
+                function () { _showMapAnchor(); }));
+
+            tour.addStep(_gestureStep(tour, 'rotate', 'rotate',
+                '<strong>Regardez autour</strong><br>Faites glisser la photo avec la souris. ' +
+                'Le cône bleu sur la carte suit votre regard.',
+                '.geo-pnx-viewer'));
+
+            tour.addStep(_gestureStep(tour, 'next-pic', 'next-pic',
+                '<strong>Avancez</strong><br>Cliquez sur une flèche dans la photo pour passer à la suivante. ' +
+                'Le marqueur vous suit sur la carte.',
+                '.geo-pnx-viewer'));
+
+            tour.addStep({
                 id:       'fullscreen',
-                text:     '<strong>Plein écran</strong><br>Agrandit le panneau pour mieux voir les photos immersives.',
-                attachTo: { element: '.geo-pnx-fullscreen-btn', on: 'left' },
-                buttons:  [_btn('Fermer', _tour.cancel.bind(_tour), true), _btn('Suivant ›', _tour.next.bind(_tour))]
+                text:     '<strong>Plein écran</strong><br>Agrandit le panneau pour mieux voir les photos.',
+                attachTo:  { element: '.geo-pnx-fullscreen-btn', on: 'left' },
+                // Cliquer sur le bouton désigné fait aussi avancer la visite.
+                advanceOn: { selector: '.geo-pnx-fullscreen-btn', event: 'click' },
+                buttons:   [skipTour, next]
             });
 
-            _tour.addStep({
-                id:       'map-click',
-                text:     '<strong>Cliquez sur la carte</strong><br>Cliquez n\'importe où sur la carte GEO, à côté de ce panneau, pour afficher la photo Panoramax la plus proche de ce point.',
-                attachTo: { element: '.geo-pnx-viewer-wrap', on: 'left' },
-                buttons:  [_btn('‹ Précédent', _tour.back.bind(_tour), true), _btn('Suivant ›', _tour.next.bind(_tour))]
-            });
-
-            var hasOpenBtn = !!document.querySelector('.geo-pnx-open-btn');
-            _tour.addStep({
+            // Bouton absent si aucune photo n'est affichée : la bulle est alors centrée
+            // (sélecteur résolu à l'affichage) et le texte le précise.
+            tour.addStep({
                 id:       'open-externally',
-                text:     '<strong>Ouvrir dans Panoramax</strong><br>Ouvre la photo actuellement affichée dans une nouvelle fenêtre, sur le site Panoramax.' +
-                          (hasOpenBtn ? '' : ' (Ce bouton apparaît une fois qu\'une photo est affichée.)'),
-                attachTo: hasOpenBtn ? { element: '.geo-pnx-open-btn', on: 'left' } : undefined,
-                buttons:  [_btn('‹ Précédent', _tour.back.bind(_tour), true), _btn('Terminer', _tour.complete.bind(_tour))]
+                text:     function () {
+                    return '<strong>Ouvrir dans Panoramax</strong><br>Ouvre la photo affichée dans une nouvelle ' +
+                           'fenêtre, sur le site Panoramax.' +
+                           (document.querySelector('.geo-pnx-open-btn') ? '' :
+                               ' (Ce bouton apparaît une fois qu\'une photo est affichée.)');
+                },
+                attachTo:  { element: '.geo-pnx-open-btn', on: 'left' },
+                advanceOn: { selector: '.geo-pnx-open-btn', event: 'click' },
+                buttons:   [skipTour, next]
             });
 
-            _tour.start();
+            tour.addStep({
+                id:       'help',
+                text:     '<strong>C\'est tout !</strong><br>Vous pouvez relancer cette visite à tout moment avec ce bouton.',
+                attachTo: { element: '.geo-pnx-help-btn', on: 'left' },
+                buttons:  [_btn('Terminer', function () { _setTourState('done'); tour.complete(); })]
+            });
+
+            // « Étape N sur M » en tête de chaque bulle (le texte peut être une fonction).
+            var total = tour.steps.length;
+            tour.steps.forEach(function (step, i) {
+                var text = step.options.text;
+                step.options.text = function () {
+                    return '<div class="geo-pnx-tour-count">Étape ' + (i + 1) + ' sur ' + total + '</div>' +
+                           (typeof text === 'function' ? text.call(this) : text);
+                };
+            });
+
+            tour.start();
         }
 
         // ============================================================
@@ -772,31 +1014,46 @@ angular
                 '.shepherd-element{z-index:10000!important;}',
                 '.shepherd-modal-overlay-container{z-index:9999!important;}',
 
-                // Thème oldschool — bordure noire, coins carrés, boutons uppercase
-                // (repris de geo-garbage-collector pour une identité visuelle cohérente)
-                '.shepherd-theme-oldschool.shepherd-element{border:3px solid #1a1a1a;border-radius:0;',
-                '  box-shadow:4px 4px 0 rgba(0,0,0,.18);background:#fff;max-width:380px;}',
-                '.shepherd-theme-oldschool .shepherd-content{border-radius:0;}',
-                '.shepherd-theme-oldschool .shepherd-header{border-radius:0;padding:.75rem 1rem 0;}',
-                '.shepherd-theme-oldschool .shepherd-text{font-size:1.8rem;line-height:1.55;',
-                '  color:#1a1a1a;padding:1.25rem 1.5rem;}',
-                '.shepherd-theme-oldschool .shepherd-footer{border-top:2px solid #1a1a1a;',
-                '  border-radius:0;padding:0;display:flex;justify-content:stretch;}',
-                '.shepherd-theme-oldschool .shepherd-button{flex:1;border:none;',
-                '  border-radius:0;font-size:1.5rem;font-weight:700;',
-                '  text-transform:uppercase;letter-spacing:.06em;padding:1rem;margin:0;',
-                '  transition:filter .15s;}',
-                '.shepherd-theme-oldschool .shepherd-button:not(:disabled):hover{filter:brightness(.92);}',
-                '.shepherd-theme-oldschool .shepherd-button.shepherd-button-secondary{',
-                '  background:#cfd8dc;color:#1a1a1a;}',
-                '.shepherd-theme-oldschool .shepherd-button:not(.shepherd-button-secondary){',
-                '  background:#00c853;color:#fff;}',
-                '.shepherd-theme-oldschool .shepherd-button+.shepherd-button{border-left:2px solid #1a1a1a;}',
-                '.shepherd-theme-oldschool .shepherd-cancel-icon{color:#333;font-size:1.6em;}',
-                '.shepherd-theme-oldschool[data-popper-placement^=bottom]>.shepherd-arrow:before{box-shadow:-2px -2px 0 #1a1a1a;}',
-                '.shepherd-theme-oldschool[data-popper-placement^=top]>.shepherd-arrow:before{box-shadow:2px 2px 0 #1a1a1a;}',
-                '.shepherd-theme-oldschool[data-popper-placement^=left]>.shepherd-arrow:before{box-shadow:2px -2px 0 #1a1a1a;}',
-                '.shepherd-theme-oldschool[data-popper-placement^=right]>.shepherd-arrow:before{box-shadow:-2px 2px 0 #1a1a1a;}'
+                // Visite : la cible de l'étape pulse (pas d'overlay modal, cf. _tourOptions),
+                // et une étape réussie affiche « ✓ Bien joué » avant de passer à la suivante.
+                '@keyframes geo-pnx-pulse{0%,100%{box-shadow:0 0 0 0 rgba(240,74,74,.55);}',
+                '  50%{box-shadow:0 0 0 8px rgba(240,74,74,0);}}',
+                '.geo-pnx-tour-pulse{animation:geo-pnx-pulse 1.4s ease-in-out infinite;}',
+                // Point « cliquez ici » sur la carte GEO (étape Cliquez sur la carte) : ne
+                // capte pas le clic, qui doit atteindre la carte.
+                '.geo-pnx-tour-map-anchor{position:fixed;width:14px;height:14px;margin:-7px 0 0 -7px;',
+                '  border-radius:50%;background:#f04a4a;border:2px solid #fff;z-index:9998;',
+                '  pointer-events:none;animation:geo-pnx-pulse 1.4s ease-in-out infinite;}',
+                '.geo-pnx-tour-success .shepherd-text::before{content:"✓ Bien joué !";display:block;',
+                '  color:#00a844;font-weight:700;margin-bottom:.4em;}',
+                '@media (prefers-reduced-motion:reduce){.geo-pnx-tour-pulse{animation:none;',
+                '  outline:3px solid #f04a4a;}}',
+
+                // Thème « intégré GEO » : blanc, liseré et bouton principal rouge GEO, coins 4px,
+                // ombre douce ; boutons secondaires en texte simple. Tailles en px : la taille
+                // de base de GEO ne doit pas changer le rendu des bulles.
+                '.shepherd-theme-geo.shepherd-element{background:#fff;border-radius:4px;max-width:340px;',
+                '  border-top:3px solid #f04a4a;box-shadow:0 4px 16px rgba(0,0,0,.18);}',
+                '.shepherd-theme-geo .shepherd-content{border-radius:4px;}',
+                '.shepherd-theme-geo .shepherd-text{font-size:14px;line-height:1.45;color:#263238;',
+                '  padding:12px 14px;}',
+                '.shepherd-theme-geo .shepherd-text strong{display:block;margin-bottom:2px;}',
+                '.geo-pnx-tour-count{font-size:11px;font-weight:700;letter-spacing:.04em;',
+                '  text-transform:uppercase;color:#f04a4a;margin-bottom:6px;}',
+                '.shepherd-theme-geo .shepherd-footer{display:flex;flex-wrap:wrap;justify-content:flex-end;',
+                '  gap:6px;padding:0 12px 12px;}',
+                '.shepherd-theme-geo .shepherd-button{margin:0;font-size:13px;line-height:1.3;cursor:pointer;',
+                '  border:0;border-radius:3px;padding:6px 14px;font-weight:600;background:#f04a4a;color:#fff;}',
+                '.shepherd-theme-geo .shepherd-button:not(:disabled):hover{background:#d93b3b;}',
+                '.shepherd-theme-geo .shepherd-button.shepherd-button-secondary{background:none;',
+                '  color:#607d8b;font-weight:400;padding:6px 8px;}',
+                '.shepherd-theme-geo .shepherd-button.shepherd-button-secondary:not(:disabled):hover{',
+                '  background:#eceff1;color:#263238;}',
+                '.shepherd-theme-geo .shepherd-button:focus-visible{outline:2px solid #263238;outline-offset:2px;}',
+                // Flèche : la bulle de dessous est ancrée à gauche des cibles ; liseré rouge
+                // conservé quand elle est ancrée en dessous.
+                '.shepherd-theme-geo .shepherd-arrow:before{background:#fff;}',
+                '.shepherd-theme-geo[data-popper-placement^=bottom]>.shepherd-arrow:before{background:#f04a4a;}'
             ].join('');
 
             document.head.appendChild(style);
