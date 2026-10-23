@@ -1,5 +1,9 @@
 # Design : Tuto d'accueil interactif du module Panoramax
 
+> **Note (2026-10-23)** : ce design a été écrit pour Shepherd.js. L'implémentation livrée dans ce dépôt utilise
+> **Driver.js** (licence MIT) ; ce qui concerne Shepherd (API, thème `shepherd-theme-geo`, `advanceOn`,
+> `keyboardNavigation`…) décrit la première version. Le comportement attendu, lui, est inchangé : voir `GUIDE-DEV.md`.
+
 Généré par /office-hours le 2026-10-14
 Branche : implémentation sur `feat/tuto-accueil`, créée depuis `test/combo` (le tuto dépend du cône et du flux select, absents de `upstream/main`)
 Repo : sit-pmo/geo-module-panoramax

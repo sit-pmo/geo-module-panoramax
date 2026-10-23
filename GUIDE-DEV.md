@@ -61,29 +61,47 @@ version à l'autre :
    est retenue, tous utilisateurs confondus.
 8. **Bouton rond « ouvrir dans Panoramax »** superposé au viewer, visible quand une photo est
    affichée : ouvre `{siteUrl}/?pic={picId}` dans un nouvel onglet (voir « Points à vérifier »).
-9. **Tuto d'accueil et bouton d'aide** (Shepherd.js, AGPL-3.0 ; design : `docs/designs/tuto-accueil.md`) :
+9. **Tuto d'accueil et bouton d'aide** (Driver.js, MIT ; design : `docs/designs/tuto-accueil.md`, écrit pour la
+   première version sous Shepherd.js, remplacé depuis par Driver.js, de licence MIT) :
    - **Accroche** au chargement de l'appli : une bulle d'une étape sur l'onglet Panoramax
      (élément trouvé via l'icône `.icon_panoramax`, 10 essais espacés de 500 ms, sinon pas
      d'accroche). Elle se ferme au clic sur l'onglet et, par sécurité, au début du contrôleur
      du panneau.
    - **Visite du panneau** au premier `ready` du viewer (donc après la confirmation éventuelle),
-     6 étapes dont 3 interactives qui avancent sur le vrai geste via `_tourNotify`, appelé
+     9 étapes dont 3 interactives qui avancent sur le vrai geste via `_tourNotify`, appelé
      depuis les gestionnaires existants :
      clic sur la carte (`pointerClick` **puis** `select` d'une nouvelle photo : la photo du
      centre sélectionnée automatiquement à l'ouverture ne compte pas), rotation cumulée ≥ 30°
-     (`view-rotated`), photo suivante (`select`). Chaque étape a « Passer cette étape ».
-   - **Pas d'overlay modal** (il bloquerait le clic sur la carte) : la cible pulse
-     (`highlightClass`). **`keyboardNavigation: false`** : la bulle prend le focus et ← →
-     feraient sauter les étapes interactives. Pas de croix ; Échap ferme sans rien mémoriser.
-   - **Mémorisation** : clé `localStorage` `geo-panoramax-tour` = `v1:done` (Terminer ou Passer
-     la visite) ou `v1:never` (Ne plus afficher). Seuls ces boutons écrivent. Fermer le panneau
+     (`view-rotated`), photo suivante (`select`). « Suivant » passe une étape dont le geste n'aboutit pas.
+   - **Visite non modale** : Driver.js voile la page et bloque tout clic hors de l'élément visé
+     (`body.driver-active * { pointer-events: none }`), ce qui empêcherait de cliquer sur la carte
+     GEO, justement le geste à apprendre. Le module règle `overlayOpacity: 0`, masque le SVG du
+     voile en CSS (`.driver-overlay`) et retire la classe `driver-active` de `<body>` juste après
+     `drive()` (`_driveTour`) ; la cible pulse (`.driver-active-element`). Si une mise à jour de
+     Driver.js change ces noms de classes, c'est le seul endroit à revoir.
+   - **Clavier** : les étapes ne déclarent que `showButtons: ['close']`, donc Driver ignore ← →
+     (qui feraient sauter les étapes interactives, la bulle prenant le focus). Les boutons natifs
+     de Driver sont masqués, les nôtres (`step.data.buttons`) disent ce qui est mémorisé. La
+     visite a deux boutons « ‹ Précédent » / « Suivant › » (`movePrevious` / `moveNext`) et une
+     croix en haut à droite (`closeButton` de Driver, étapes `data.closable`) qui ferme et mémorise
+     `v1:done` ; l'accroche n'a pas de croix. Échap ferme sans rien mémoriser. Revenir en arrière
+     sur « Cliquez sur la carte » repose le point d'ancrage : Driver résout l'élément de l'étape
+     d'arrivée avant de désélectionner l'étape de départ, donc seule cette étape retire le point.
+   - **Mémorisation** : clé `localStorage` `geo-panoramax-tour` = `v1:done` (Terminer, ou croix
+     de fermeture) ou `v1:never` (Ne plus afficher). Seuls ces boutons écrivent. Fermer le panneau
      en pleine visite n'écrit rien : elle reprend au début à la prochaine ouverture. Passer
      `_TOUR_VERSION` à `v2` réaffiche la visite une fois pour tout le monde.
    - **Accroche ancrée sur l'icône elle-même** (la plus à droite parmi les `.icon_panoramax`
      visibles) : ancrée sur son ancêtre cliquable, elle se décalait vers le milieu de l'écran.
+   - **Infobulles** : les boutons flottants portent `data-tip` (CSS `::after`, à gauche du bouton, instantané) ;
+     le `title` natif n'apparaissait pas dans GEO. L'infobulle est masquée sur la cible de la visite
+     (`.driver-active-element`), dont la bulle occupe la même place.
+   - **Colonne de boutons**, de haut en bas : plein écran, ouvrir dans Panoramax, pointage, nouveautés, aide (`?`) ;
+     la visite les présente dans cet ordre (pointage et nouveautés sans avance au clic : « Suivant » seulement,
+     la modale des nouveautés a un `zIndex` supérieur à celui de Driver).
    - **Étapes « boutons »** (plein écran, ouvrir dans Panoramax) : cliquer sur le bouton
-     désigné avance aussi (`advanceOn`) ; sur la dernière, cliquer sur « ? » termine la visite.
-   - **Thème `shepherd-theme-geo`** (choisi le 14/10/2026 sur une planche de 3 variantes) :
+     désigné avance aussi (`advanceOnClick`) ; sur la dernière, cliquer sur « ? » termine la visite.
+   - **Thème `.geo-pnx-tour`** (choisi le 14/10/2026 sur une planche de 3 variantes) :
      blanc, liseré et bouton principal rouge GEO `#f04a4a`, coins 4px, boutons secondaires en
      texte simple, compteur « Étape N sur M ». Tailles en px pour ne pas dépendre de GEO.
    - **Réglage** `showTourOnStart` (défaut : oui) pour couper l'accroche et la visite
@@ -104,13 +122,31 @@ version à l'autre :
     qu'au changement de photo, pas à la rotation. Limites : ouverture fixe de 60° (ne suit pas
     le zoom du viewer), carte GEO supposée orientée Nord en haut, et une photo sans
     `view:azimuth` est traitée comme orientée au Nord. Testé sur GEO (PETR Marennes Oléron).
-
 11. **Groupe de couches GEO** (config `layerGroupName`, défaut `Panoramax`, vide = désactivé) :
     coché à l'ouverture du panneau, décoché à sa fermeture (`$destroy`). Faute d'API GEO de
     couches connue, le module clique la case « œil » de la légende
     (`.acf-thematic-layer-visibility-checkbox-label`, reliée par `aria-labelledby` au libellé
     `#id-thematic-group-item-label-…` dont le texte vaut le nom du groupe), seulement si
     `aria-checked` diffère de l'état voulu. Sans effet si la légende n'est pas rendue.
+
+12. **Pointage d'un objet depuis la photo** (issue #9, **première version, non testée sur de
+    vraies photos ni dans GEO**). Bouton « cible » sous le bouton « ouvrir dans Panoramax » : en
+    mode pointage, un clic sur le **pied** d'un objet au sol (grille, regard…) pose un point
+    sur la carte GEO. Méthode A seule (projection sur le sol) :
+    - le clic vient de l'événement `click` de `viewerEl.psv` (Photo Sphere Viewer 5.15, `e.data` :
+      `yaw`/`pitch` en radians, `objects`, `marker`, `rightclick`) ; on ignore les clics sur les
+      flèches de navigation (`objects[].userData.tourLink`) et les marqueurs, mais pas les autres
+      `objects` (un clic au sol en renvoie, constaté) ;
+    - cap = `yaw` + `view:azimuth` (comme `getXY()`), distance = hauteur de caméra /
+      tan(angle sous l'horizon), position par approximation locale (m/° constants) ;
+    - hauteur de caméra = réglage `cameraHeight` (2,5 m par défaut), **supposée**, pas lue dans
+      la photo ; visée refusée à moins de 2° sous l'horizon ou au-delà de 40 m ;
+    - incertitude = `quality:horizontal_accuracy` (5 m si absent) combinée à ±0,3 m sur la
+      hauteur, affichée en ± m dans la liste et l'infobulle (pas de cercle sur la carte) ;
+    - points gardés en mémoire (perdus au rechargement de la page), exportables en GeoJSON et
+      CSV (`;`, BOM UTF-8). Pas de couche GEO éditable, pas de triangulation, pas de rayon de
+      visée : voir l'issue. Photos plates : `sphereCorrection` (inclinaison de la caméra)
+      ignorée, à vérifier.
 
 ## Points à vérifier avant mise en production
 
@@ -182,7 +218,7 @@ Pas de tests automatisés : le code dépend de GEO et du viewer. En console, vid
 - [ ] Étapes plein écran / ouvrir dans Panoramax : cliquer sur le bouton désigné avance ;
       dernière étape : cliquer sur « ? » termine la visite (rien ne réapparaît ensuite).
 - [ ] La bulle d'accroche pointe bien l'onglet Panoramax de la barre de droite.
-- [ ] Terminer, ou Passer la visite → recharger : ni accroche ni visite ; « ? » relance la visite.
+- [ ] Terminer, ou fermer par la croix → recharger : ni accroche ni visite ; « ? » relance la visite.
 - [ ] Ne plus afficher (accroche ou visite) → recharger : rien ne réapparaît.
 - [ ] Fermer le panneau en pleine visite → rouvrir : la visite reprend au début.
 - [ ] `showTourOnStart` décoché dans le Générateur : ni accroche ni visite auto ; « ? » marche.
