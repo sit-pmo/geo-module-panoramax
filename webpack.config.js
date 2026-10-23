@@ -15,6 +15,26 @@ module.exports = {
         use: ["style-loader", "css-loader"]
       },
       {
+        // CHANGELOG.md embarqué en texte brut (journal des nouveautés, voir src/js/changelog.js)
+        test: /\.md$/,
+        use: "raw-loader"
+      },
+      {
+        // driver.js (visite guidée, MIT) est publié en syntaxe récente (?., ??) que le parseur de
+        // webpack 4 ne comprend pas : on ne transpile que ces deux constructions.
+        test: /\.c?js$/,
+        include: /node_modules[\\/]driver\.js/,
+        use: {
+          loader: "babel-loader",
+          options: {
+            plugins: [
+              "@babel/plugin-transform-optional-chaining",
+              "@babel/plugin-transform-nullish-coalescing-operator"
+            ]
+          }
+        }
+      },
+      {
         // @panoramax/web-viewer utilise une syntaxe JS récente (??=, ?., class static blocks)
         // que le parseur de webpack 4 (acorn ancien) ne comprend pas nativement.
         // On transpile UNIQUEMENT ces constructions précises — pas de preset-env généraliste
