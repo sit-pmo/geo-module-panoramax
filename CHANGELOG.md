@@ -11,6 +11,12 @@ la plus récente publiée doit être celle de `package.json` et de `src/plugin.g
 
 ## [Non publié]
 
+### Ajouté
+
+- Tant que le panneau est ouvert, la carte GEO montre le tracé des séquences Panoramax (lignes violettes) et, en
+  zoomant, l'emplacement des photos : on voit où cliquer pour trouver une photo. Réglage du Générateur « Afficher les
+  séquences et les photos sur la carte » (activé par défaut)
+
 ## [1.8.1] — 2026-10-23
 
 ### Ajouté
