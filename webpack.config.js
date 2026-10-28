@@ -1,4 +1,12 @@
 const path = require("path");
+const webpack = require("webpack");
+
+// Bannière conservée dans main.js : licence et sources du module (le code tiers garde ses propres mentions)
+const banner = [
+  "geo-panoramax " + require("./package.json").version,
+  "SPDX-License-Identifier: GPL-3.0-or-later",
+  "Source : https://github.com/vienne-condrieu-agglomeration/geo-module-panoramax"
+].join("\n");
 
 module.exports = {
 
@@ -69,5 +77,8 @@ module.exports = {
   },
   optimization: {
     minimize: true
-  }
+  },
+  plugins: [
+    new webpack.BannerPlugin({ banner: banner, entryOnly: true })
+  ]
 };

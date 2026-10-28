@@ -11,7 +11,15 @@
  */
 
 const path = require("path");
+const webpack = require("webpack");
 const GeoExtensionPublish = require("@bg/publish-js-extension");
+
+// Bannière conservée dans main.js : licence et sources du module (le code tiers garde ses propres mentions)
+const banner = [
+  "geo-panoramax " + require("./package.json").version,
+  "SPDX-License-Identifier: GPL-3.0-or-later",
+  "Source : https://github.com/vienne-condrieu-agglomeration/geo-module-panoramax"
+].join("\n");
 
 // Le jeton ne doit jamais être écrit dans le code : on le lit uniquement dans l'environnement.
 const accessToken = process.env.GEO_ACCESS_TOKEN;
@@ -88,6 +96,7 @@ module.exports = {
     minimize: true
   },
   plugins: [
+    new webpack.BannerPlugin({ banner: banner, entryOnly: true }),
     new GeoExtensionPublish({
       server:        process.env.GEO_SERVER || "https://geoservices.business-geografic.com",
       insecureServer: false,

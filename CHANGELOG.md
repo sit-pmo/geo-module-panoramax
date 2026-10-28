@@ -17,6 +17,12 @@ la plus récente publiée doit être celle de `package.json` et de `src/plugin.g
   zoomant, l'emplacement des photos : on voit où cliquer pour trouver une photo. Réglage du Générateur « Afficher les
   séquences et les photos sur la carte » (activé par défaut)
 
+## [1.8.2] — 2026-10-23
+
+### Modifié
+
+- Licence : le module est désormais publié sous GPL-3.0-or-later (code) et CC-BY-4.0 (documentation), à la place de l'AGPL-3.0. Les versions précédentes (1.2.0 à 1.8.1) restent disponibles sous l'AGPL-3.0 pour celles et ceux qui les ont reçues. L'utilisation dans GEO ne change pas
+
 ## [1.8.1] — 2026-10-23
 
 ### Ajouté
