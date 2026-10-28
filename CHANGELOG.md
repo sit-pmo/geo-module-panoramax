@@ -11,6 +11,11 @@ la plus récente publiée doit être celle de `package.json` et de `src/plugin.g
 
 ## [Non publié]
 
+### Corrigé
+
+- La molette zoome à nouveau la carte GEO quand le pointeur est sur le marqueur de la photo (cône) ou sur un point
+  pointé : ces marqueurs ne captent plus la souris (en contrepartie, plus d'infobulle à leur survol)
+
 ## [1.8.2] — 2026-10-23
 
 ### Modifié
