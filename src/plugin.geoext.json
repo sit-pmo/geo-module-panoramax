@@ -1,7 +1,7 @@
 {
   "name": "geo.panoramax",
   "displayName": "Vue immersive Panoramax",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "minGeoVersion": "3.2.0",
   "author": "fallamanche@vienne-condrieu-agglomeration.fr",
   "allowMultiple": false,
@@ -102,21 +102,21 @@
         },
         {
           "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
-          "name": "Groupe de couches à afficher",
-          "description": "Nom (tel qu'affiché dans la légende) du groupe de couches GEO coché à l'ouverture du panneau Panoramax et décoché à sa fermeture. Laisser vide pour ne pas toucher aux couches.",
-          "key": "layerGroupName",
-          "required": false,
-          "type": "STRING",
-          "defaultValue": "Panoramax"
-        },
-        {
-          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
           "name": "Afficher la visite guidée au premier lancement",
           "description": "Affiche une bulle sur l'onglet Panoramax à l'ouverture de l'application, puis une visite guidée interactive à la première ouverture du panneau. L'utilisateur peut la passer ou choisir de ne plus la voir (mémorisé dans le navigateur). La visite reste accessible avec le bouton « ? » du panneau.",
           "key": "showTourOnStart",
           "required": false,
           "type": "BOOLEAN",
           "defaultValue": true
+        },
+        {
+          "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",
+          "name": "Groupe de couches à afficher",
+          "description": "Nom (tel qu'affiché dans la légende) du groupe de couches GEO coché à l'ouverture du panneau Panoramax et décoché à sa fermeture. Laisser vide pour ne pas toucher aux couches.",
+          "key": "layerGroupName",
+          "required": false,
+          "type": "STRING",
+          "defaultValue": "Panoramax"
         },
         {
           "@type": "com.bg.functionality.canvas.configuration.PropertyConfigurationElement",

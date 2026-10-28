@@ -152,7 +152,7 @@ La lecture se fait comme `confirmBeforeOpen` : `props.showTourOnStart !== false 
 
 ## Questions ouvertes
 
-1. **Sélecteur de l'onglet** dans le DOM de GEO : à relever en console sur l'appli PETR
+1. **Sélecteur de l'onglet** dans le DOM de GEO : à relever en console sur l'appli GEO
    (`document.querySelector('.icon_panoramax')` puis remonter au launcher cliquable).
 2. **Fermeture du panneau pendant la visite** : reprendre au début (proposé) ou considérer la
    visite comme passée ?
@@ -182,7 +182,7 @@ Version du manifeste à monter (nouveau réglage).
 
 ## Dépendances
 
-- Accès à l'appli GEO PETR Marennes Oléron pour relever le sélecteur de l'onglet.
+- Accès à une appli GEO pour relever le sélecteur de l'onglet.
 - Un collègue « cobaye » qui n'a jamais utilisé le module.
 
 ## The Assignment
@@ -407,13 +407,13 @@ History: none
 ### R6: contrat de non-régression et méthode de vérification
 Finding: T1, P1 (règle de non-régression), confiance 9/10, `package.json` (`"test": "echo \"Error: no test specified\" && exit 1"`, aucun fichier de test) ; hooks prévus dans `_onSelect` (`src/js/extension.js` ~l. 305-320), `_onViewRotated` (~l. 280), gestionnaire `pointerClick` (l. 259-261), `$destroy` (l. 361-375), relevé par Claude (revue eng)
 Plan baseline: critères de réussite du plan (« Aucune régression : confirmation d'ouverture, marqueur, cône, recentrage `centerOn`, groupe de couches »), sans méthode de vérification
-Runtime evidence: aucun test automatisé ; le comportement actuel n'a été validé qu'à la main sur GEO PETR (GUIDE-DEV)
+Runtime evidence: aucun test automatisé ; le comportement actuel n'a été validé qu'à la main sur une instance GEO (GUIDE-DEV)
 Comparison grid:
 | Choix | Actuel | A | B |
 |---|---|---|---|
 | R6 comportements à préserver | listés dans les critères, sans assertion | 1) confirmation Oui/Non/Ne plus demander inchangée, la visite ne démarre qu'après Oui ; 2) marqueur + recentrage `centerOn` sur `select`, dédoublonné sur picId (hook placé après la déduplication) ; 3) cône sur `picture-loaded`/`view-rotated`, filtre 3° inchangé ; 4) `$destroy` : désabonnements inchangés + `cancel()` de la visite ; 5) groupe de couches coché/décoché ; 6) plein écran et « Ouvrir dans Panoramax » | identique à A |
 | R6 changements voulus | — | le contenu de la visite « ? » est remplacé par la nouvelle visite ; flèches du clavier désactivées (R5) | identique à A |
-| R6 méthode | aucune | checklist manuelle dans `GUIDE-DEV.md` (§ « Tester la visite »), déroulée sur GEO PETR avant chaque ZIP, + artefact Test Plan pour /qa | A + harnais jsdom/jest (nouvelles devDependencies, la logique doit sortir du bloc `angular.run` pour être testable) |
+| R6 méthode | aucune | checklist manuelle dans `GUIDE-DEV.md` (§ « Tester la visite »), déroulée sur une instance GEO avant chaque ZIP, + artefact Test Plan pour /qa | A + harnais jsdom/jest (nouvelles devDependencies, la logique doit sortir du bloc `angular.run` pour être testable) |
 Question D6:
 D6 — Comment vérifier que la visite ne casse rien d'existant ?
 Projet : module GEO Panoramax, branche test/combo, revue du design du tuto d'accueil.
@@ -434,13 +434,13 @@ Net : une checklist sur le vrai GEO contre un banc automatique qui simule l'esse
 Header: Tests
 Options:
 A) Checklist manuelle (recommandé)
-Contrat de 6 comportements préservés + 2 changements voulus, écrit dans GUIDE-DEV (§ Tester la visite), déroulé sur GEO PETR avant chaque ZIP ; artefact Test Plan pour /qa.
+Contrat de 6 comportements préservés + 2 changements voulus, écrit dans GUIDE-DEV (§ Tester la visite), déroulé sur une instance GEO avant chaque ZIP ; artefact Test Plan pour /qa.
 B) Checklist + jsdom/jest
 Même contrat, plus un banc jsdom/jest sur la logique extraite (nouvelles devDependencies, refactor du bloc run).
 
 State: approved
 Actual answer: A) Checklist manuelle (D6, 2026-10-14)
-Accepted scope: contrat de non-régression (6 comportements préservés + 2 changements voulus, cf. grille) écrit dans `GUIDE-DEV.md` § « Tester la visite », déroulé sur GEO PETR avant chaque ZIP ; artefact Test Plan pour /qa ; aucun framework de test ajouté
+Accepted scope: contrat de non-régression (6 comportements préservés + 2 changements voulus, cf. grille) écrit dans `GUIDE-DEV.md` § « Tester la visite », déroulé sur une instance GEO avant chaque ZIP ; artefact Test Plan pour /qa ; aucun framework de test ajouté
 History: none
 
 Approval readiness: PASS (R1 ← D1 A ; R2 ← D2 A ; R3 ← D3 A ; R4 ← D4 A ; R5 ← D5 A ; R6 ← D6 A ; Q2 = correction factuelle sans changement de comportement)
@@ -530,7 +530,7 @@ Tirées des constats ci-dessus. À cocher au fil de l'eau.
 
 - [ ] **T1 (P1, humain : ~30 min / CC : ~5 min)** — GEO — Relever le sélecteur cliquable de l'onglet Panoramax
   - Source : question ouverte 1 + F4
-  - Fichiers : aucun (console sur GEO PETR : `document.querySelector('.icon_panoramax')`)
+  - Fichiers : aucun (console sur une instance GEO : `document.querySelector('.icon_panoramax')`)
   - Vérif : le sélecteur retenu reçoit bien le clic qui ouvre l'onglet
 - [x] **T2 (P1, humain : ~3 h / CC : ~20 min)** — extension.js — Visite du panneau en 6 étapes avec `_tourWaiting`/`_tourNotify`
   - Source : R1 (drapeau pointerClick puis select), R3 (`$destroy` → cancel sans écriture), Q2 (repli hasOpenBtn)
@@ -555,7 +555,7 @@ Tirées des constats ci-dessus. À cocher au fil de l'eau.
 - [x] **T7 (P1, humain : ~1 h / CC : ~10 min)** — doc — Checklist « Tester la visite » (contrat R6) + description du comportement dans GUIDE-DEV
   - Source : R6
   - Fichiers : `GUIDE-DEV.md`
-  - Vérif : checklist déroulée sur GEO PETR avant le ZIP
+  - Vérif : checklist déroulée sur une instance GEO avant le ZIP
 
 ## Completion summary
 - Step 0: Scope Challenge — scope accepted as-is

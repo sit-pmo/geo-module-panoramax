@@ -121,7 +121,7 @@ version à l'autre :
     est en vol à la fois, les demandes intermédiaires étant fusionnées. La carte n'est recentrée
     qu'au changement de photo, pas à la rotation. Limites : ouverture fixe de 60° (ne suit pas
     le zoom du viewer), carte GEO supposée orientée Nord en haut, et une photo sans
-    `view:azimuth` est traitée comme orientée au Nord. Testé sur GEO (PETR Marennes Oléron).
+    `view:azimuth` est traitée comme orientée au Nord. Testé sur une instance GEO.
 11. **Groupe de couches GEO** (config `layerGroupName`, défaut `Panoramax`, vide = désactivé) :
     coché à l'ouverture du panneau, décoché à sa fermeture (`$destroy`). Faute d'API GEO de
     couches connue, le module clique la case « œil » de la légende
@@ -183,11 +183,11 @@ version à l'autre :
 
   Le manifeste déclare `widget.side.pro` et `widget.side` : le module peut être glissé dans le
   bandeau de droite (testé). Il s'enregistre de toute façon par le code comme onglet de la barre
-  latérale droite, comme le plugin streetview natif.
+  latérale droite.
 - **`widgets="false"` à éviter** : il supprime aussi les flèches précédent/suivant. On garde les
   widgets par défaut malgré la barre de recherche redondante avec la carte GEO.
 - **Recentrer la carte GEO sans dézoomer : `centerOn`, ni `setExtent` ni `panTo`**. Mesuré en
-  console sur GEO (PETR Marennes Oléron) :
+  console sur une instance GEO :
   - `map.setExtent(emprise courante, crs, { disablePadding: true })` ne restitue pas le zoom :
     largeur ×1.333 panneau fermé, ×1.5 panneau ouvert. Appelé à chaque photo, il provoquait un
     dézoom cumulatif (échelle doublée à chaque déplacement dans le viewer) ;
@@ -198,7 +198,6 @@ version à l'autre :
     `f = (100 - panelWidthPct) / 200`, pour que le marqueur tombe au milieu de la zone visible.
 
   Pour inspecter l'API carte en console : `angular.element(document.body).injector().get('geoApplication').map`
-  (les signatures minifiées s'obtiennent avec `.toString()` sur chaque méthode).
 
 ## Tester la visite (à dérouler sur GEO avant chaque ZIP)
 

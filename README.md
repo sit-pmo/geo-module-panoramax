@@ -158,7 +158,15 @@ premier `## [x.y.z]` du journal portent la même version : les trois s'écrivent
 
 ## 8. Licence et mentions
 
-- Ce module est publié sous licence **GNU AGPL-3.0 ou ultérieure** : voir [`LICENSE`](LICENSE).
-- Il embarque [Driver.js](https://driverjs.com/) (MIT), [`@panoramax/web-viewer`](https://gitlab.com/panoramax/server/api) (MIT) et des icônes [Lucide](https://lucide.dev) (ISC).
+- **Code** : [GPL-3.0-or-later](LICENSE) — © 2026 Vienne Condrieu Agglomération et contributeurs (voir ci-dessous).
+- **Documentation** (ce README, `GUIDE-DEV.md`, `CHANGELOG.md`, captures) : [CC-BY-4.0](LICENSE-DOCS).
+- Les versions 1.2.0 à 1.8.1 ont été publiées sous AGPL-3.0-or-later et restent disponibles sous cette licence pour celles et ceux qui les ont reçues. La licence actuelle s'applique à partir de la version 1.8.2.
+- **Composants tiers** embarqués : [`@panoramax/web-viewer`](https://gitlab.com/panoramax/server/api) (MIT) et ses dépendances, [Driver.js](https://driverjs.com/) (MIT) et des icônes [Lucide](https://lucide.dev) (ISC). Détail et textes de licence dans [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
 - Il s'exécute dans une application **GEO** (Business Geografic) mais n'en contient ni le code ni la documentation. « GEO » et « Business Geografic » sont des marques de leurs détenteurs ; ce projet n'est ni affilié à, ni soutenu par Business Geografic.
 - Le plugin de publication `@bg/publish-js-extension` est propriétaire et **n'est pas inclus** dans ce dépôt.
+
+### Contributions
+
+- **Aurélien Chaumet** : le cône de vision de la photo sur la carte GEO, la correction du dézoom à chaque changement de photo, l'affichage de la photo plutôt que de la carte à l'ouverture du panneau, le groupe de couches Panoramax coché tant que le panneau est ouvert, et la conception du tuto d'accueil interactif (première version sous Shepherd.js, reprise ensuite sous Driver.js), avec la documentation correspondante.
+
+Les contributions se font sous la même licence, avec signature DCO : voir [`CONTRIBUTING.md`](CONTRIBUTING.md).
