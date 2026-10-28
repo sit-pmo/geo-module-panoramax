@@ -11,6 +11,11 @@ la plus récente publiée doit être celle de `package.json` et de `src/plugin.g
 
 ## [Non publié]
 
+### Corrigé
+
+- Sur un écran étroit, le détail de la photo (adresse, Partager, Signaler, onglets Résumé, Appareil…)
+  s'affichait en bas de toute l'application, par-dessus la carte : il reste désormais dans le panneau Panoramax
+
 ## [1.8.2] — 2026-10-23
 
 ### Modifié
